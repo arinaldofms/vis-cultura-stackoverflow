@@ -2,6 +2,8 @@
 title: "Comentários e cultura"
 output:
     html_document:
+        code_folding: hide
+        toc: true
     df_print: paged
 theme: sandstone
 ---
@@ -10,12 +12,13 @@ theme: sandstone
 library(tidyverse)
 library(here)
 library(viridis)
-source(here::here("code/lib.R"))
+library(knitr)
+source(here::here("code/import_data.R"))
 theme_set(theme_bw())
 
 knitr::opts_chunk$set(tidy = FALSE,
-                      fig.width = 6,
-                      fig.height = 5)
+                      fig.width = 8,
+                      fig.height = 6.5)
 ```
 
 ```{r read}
@@ -44,11 +47,155 @@ Considerando essa variável, queremos examinar a relação entre ela e o quão h
 
 Faça uma visualização que usa os princípios de eficácia no projeto de visualizações para facilitar as comparações que você acha que são as mais importantes para entendermos esse contexto. 
 
+Para análise da referida relação, realizou-se o tratamento do conjunto de dados de entrada, com o objetivo de eliminar as inconsistências dos dados para as variáveis de interesse: `comentaram_prop`, `PDI`, `Internet`, `usuarios` e `six_regions`. Assim, foram excluídas as linhas que possuiam valores faltantes (NA) para a variável `Internet` e foram atribuídos os valores faltantes para a variável `six_regions` para os países Slovakia e Hong Kong. Para o primeiro foi atribuído o valor europe_central_asia para a variável `six_regions` pela proximidade territorial com a Austria, para o segundo o valor east_asia_pacific pela proximidade territorial com a China. 
+
+```{r results='hide'}
+# verificacao de dados faltantes
+any(is.na(dados$comentaram_prop) | is.infinite(dados$comentaram_prop))
+any(is.na(dados$PDI) | is.infinite(dados$PDI))
+any(is.na(dados$Internet) | is.infinite(dados$Internet))
+any(is.na(dados$usuarios) | is.infinite(dados$usuarios))
+any(is.na(dados$six_regions) | is.infinite(dados$six_regions))
+
+internet_na = dados %>%
+    filter(is.na(Internet) | is.infinite(Internet))
+
+# remocao linhas com Internet == NA
+dados_validos = dados %>% drop_na(Internet)
+    
+six_regions_na = dados_validos %>% 
+    filter(is.na(six_regions) | is.infinite(six_regions))
+
+# considerou-se Hong Kong como east_asia_pacific pela proximidade territorial com a China e Slovakia como europe_central_asia pela proximidade territorial com a Austria.
+
+# fix six_regions: Slovakia = europe_central_asia , Hong Kong = east_asia_pacific
+dados_validos$six_regions[dados_validos$country == "Slovakia"] <- "europe_central_asia"
+dados_validos$six_regions[dados_validos$country == "Hong Kong"] <- "east_asia_pacific"
+
+any(is.na(dados_validos$Internet) | is.infinite(dados_validos$Internet))
+any(is.na(dados_validos$six_regions) | is.infinite(dados_validos$six_regions))
+
+```
+
+Por fim, os dados foram agrupados por países, dando origem a um novo conjunto de dados.
+
+```{r}
+# agrupamento das variaveis de interesse por paises
+dados_validos_paises = dados_validos %>% 
+    select(country, PDI, usuarios, comentaram_prop, Internet, six_regions) %>% 
+    mutate(comentaram_usuarios = usuarios * comentaram_prop) %>% 
+    group_by(country, PDI, Internet, six_regions) %>% 
+    summarise(usuarios = sum(usuarios), comentaram_prop = sum(comentaram_usuarios) / usuarios, comentaram_usuarios = sum(comentaram_usuarios))
+
+glimpse(dados_validos_paises)
+summary(dados_validos_paises)
+```
+<br />
+<br />
+<br />
+
+Um gráfico de bolhas (bubble chart) foi escolhido para elaboração da visualização envolvendo as variáveis `comentaram_prop`, `PDI`, `Internet` e `usuarios`, com o objetivo principal de mostrar a correlação visual entre as duas primeiras variáveis. Para isso, foram utilizados marcas do tipo pontos, bem como os canais de posição (vertical e horizontal), cor (gradiente ou saturação) e tamanho (área). 
+
+A definição dos intervalos para o tamanho de cada ponto foi baseada no número de `usuarios` e foi feita a partir dos valores do primeiro quartil e mediana da referida variável, e a razão entre eles, de aproximadamente 2,56 (mediana/pri_quartil = 3185/1246 ~ 2,56), foi utilizada para definição dos demais valores do intervalo, onde o próximo valor é dado pela multiplicação do atual por 2,56 até o limite de 136795 por já contemplar acima deste valor o valor máximo para a variável. 
+
+Uma escala de cores azuis em gradiente foi utilizada para a variável `Internet`, onde tons mais claros de azul representam valores menores e mais escuros valores maiores. 
+
+As escalas dos eixos cartesianos foram escolhidas com o objetivo de manter o gráfico legível, ao mesmo tempo que busca manter a proporcionalidade entre a quantidade de intervalos de uma escala para outra, isto é, 10 intervalos para o eixo das abscissas e 11 para o eixo das ordenadas. Ainda, os valores da variável `comentaram_prop` foram transformados em percentual (%) para melhor legibilidade.
+
+```{r}
+dados_validos_paises %>% ggplot(aes(x = comentaram_prop*100, y = PDI)) +
+    labs(x = "Percentual de pessoas que comentaram (%)", colour = "Acesso à internet") +
+    geom_point(aes(color = Internet, size = usuarios), alpha = 0.75) +
+    scale_size_binned(range = c(2, 8), breaks=c(1246, 3185, 8153, 20873, 53435, 136795), name = "Nº de usuários") +
+    scale_color_gradient(low = "#55aff4", high = "#1b324a") +
+    scale_x_continuous(limits = c(5, 45), breaks = c(4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44)) +
+    scale_y_continuous(limits = c(0, 110), breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110))
+
+#cor(dados_validos_paises$comentaram_prop, dados_validos_paises$PDI)
+#cor(dados_validos_paises$comentaram_prop, dados_validos_paises$Internet)
+#cor(dados_validos_paises$comentaram_prop, dados_validos_paises$usuarios)
+```
+
+
 ## Outras formas de ver
 
 Em seguida, faça 5 visualizações que usem as mesmas variáveis e também pontos, mas que sejam **menos eficazes** que a que você escolheu acima. 
 
+O gráfico abaixo difere do original apenas por apresentar os valores padrões de plotagem gráfica do R. A ausência de personalização dos parâmetros do gráfico pode induzir o leitor a pensar que cores mais claras representam valores menores e mais escuras representam valores maiores, além de prejudicar a representação do quantitativo de `usuarios`, pois da escala de tamanhos apresentada apenas 3 tamanhos de pontos foram plotados no gráfico. Também há a sobreposição de alguns pontos, dificultando a visualização de alguns valores, e ausência do tratamento de legendas e labels do gráfico, prejudicando a legibilidade.
+
+```{r}
+dados_validos_paises %>% ggplot(aes(x = comentaram_prop*100, y = PDI)) +
+    geom_point(aes(color = Internet, size = usuarios)) +
+    scale_size_binned() +
+    scale_color_gradient()
+```
+
+O gráfico seguinte usa as mesmas configurações do anterior, entretanto aplica um gradiente de cores não intuitivo, prejudicando a distinção entre valores menores e maiores apenas pela cor.
+
+```{r}
+dados_validos_paises %>% ggplot(aes(x = comentaram_prop*100, y = PDI)) +
+    geom_point(aes(color = Internet, size = usuarios)) +
+    scale_size_binned() +
+    scale_color_gradient(low = "#d80298", high = "#5bf33f")
+```
+
+
+O próximo gráfico usa as mesmas configurações do segundo gráfico, trocando apenas a variável `PDI` pela variável `usuarios`. Isso desvirtua o propósito de mostrar o relacionamento entre `PDI` e `comentaram_prop`. Também há a sobreposição de vários pontos, dificultando a visualização de alguns valores, e ausência do tratamento de legendas e labels do gráfico, prejudicando a legibilidade
+
+```{r}
+dados_validos_paises %>% ggplot(aes(x = comentaram_prop*100, y = usuarios)) +
+    geom_point(aes(color = Internet, size = PDI)) +
+    scale_size_binned()
+```
+
+O gráfico a seguir usa as mesmas configurações do segundo gráfico, mas com a inversão de canais entre as variáveis `usuarios` e `Internet`, prejudicando a legibilidade da visualização por não apresentar uma variação de tonalidade de azul perceptível, devido ao fato de 75% dos valores da variável `usuarios` estarem concentrados abaixo de 5336, proporcionando uma variação na tonalidade escura da cor azul imperceptível ao olho humano. 
+```{r}
+dados_validos_paises %>% ggplot(aes(x = comentaram_prop*100, y = PDI)) +
+    geom_point(aes(size = Internet, color = usuarios)) +
+    scale_size_binned() +
+    scale_color_gradient()
+
+```
+
+
+
+Por fim, o gráfico abaixo utiliza o conjunto de dados sem agrupamento por países com as mesmas configurações da primeira visualização, apresentando algumas duplicidades de valores para a variável `comentaram_prop` para um mesmo país, uma vez que há nos dados dois sites distintos para cálculo da mesma métrica, onde não é objetivo da visualização original mostrar o relacionamento entre as variáveis em estudo separadas por site. Não tratar essa duplicidade de dados para uma mesma métrica, confere uma sobrecarga visual, acarretando uma poluição visual ao gráfico se comparado ao da primeira visualização.
+
+```{r}
+dados_validos %>% ggplot(aes(x = comentaram_prop*100, y = PDI)) +
+    labs(x = "Percentual de pessoas que comentaram (%)", colour = "Acesso à internet") +
+    geom_point(aes(color = Internet, size = usuarios), alpha = 0.75) +
+    scale_size_binned(range = c(2, 8), breaks=c(1246, 3185, 8153, 20873, 53435, 136795), name = "Nº de usuários") +
+    scale_color_gradient(low = "#55aff4", high = "#1b324a") +
+    scale_x_continuous(limits = c(5, 45), breaks = c(4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44)) +
+    scale_y_continuous(limits = c(0, 110), breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110))
+```
+
+
 ## Bônus
 
 Inclua o continente dos países (`six_regions`) na visualização.
+
+Pode-se incluir a variável `six_regions` na visualização original de algumas maneiras, dentre elas, pela utilização de facet_wrap e pela inclusão do canal de forma. As duas formas são apresentadas a seguir. Percebe-se uma menor poluição visual e maior legibilidade na abordagem com facet_wrap.
+
+```{r}
+dados_validos_paises %>% ggplot(aes(x = comentaram_prop*100, y = PDI)) +
+    labs(x = "Percentual de pessoas que comentaram (%)", colour = "Acesso à internet") +
+    geom_point(aes(color = Internet, size = usuarios), alpha = 0.75) +
+    scale_size_binned(range = c(2, 8), breaks=c(1246, 3185, 8153, 20873, 53435, 136795), name = "Nº de usuários") +
+    scale_color_gradient(low = "#55aff4", high = "#1b324a") +
+    scale_x_continuous(limits = c(5, 45), breaks = c(4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44)) +
+    scale_y_continuous(limits = c(0, 110), breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110)) +
+    theme(axis.text.x = element_text(angle = 45), legend.title = element_text(size=10), legend.text = element_text(size=9)) + 
+    facet_wrap(~ six_regions)
+
+dados_validos_paises %>% ggplot(aes(x = comentaram_prop*100, y = PDI)) +
+    labs(x = "Percentual de pessoas que comentaram (%)", colour = "Acesso à internet") +
+    geom_point(aes(color = Internet, size = usuarios, shape = six_regions), alpha = 0.75) +
+    scale_size_binned(range = c(2, 8), breaks=c(1246, 3185, 8153, 20873, 53435, 136795), name = "Nº de usuários") +
+    scale_color_gradient(low = "#55aff4", high = "#1b324a") +
+    scale_x_continuous(limits = c(5, 45), breaks = c(4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44)) +
+    scale_y_continuous(limits = c(0, 110), breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110)) +
+    theme(legend.title = element_text(size=10), legend.text = element_text(size=9))
+```
 
